@@ -1,0 +1,8 @@
+img_size : 128
+batch_size : 4
+data_dir : '../../data/manigan/birds'
+
+
+w_dim : 512
+embedding_dim : 300
+ch : 64
