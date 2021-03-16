@@ -1,8 +1,29 @@
-img_size : 128
+# training
+num_threads : 8
+gpu : 0
+log_interval : 10
 batch_size : 4
+lr_decay : 0.5
+momentum : 0.5
+learning_rate : 0.0002
+num_epochs : 600
+model_name : 'tagan'
+
+# data
 data_dir : '../../data/manigan/birds'
+save_path : './logging'
 
+# img
+img_size : 128
+ch : 64
 
+# text
+captions_per_image : 10
+words_num : 18
 w_dim : 512
 embedding_dim : 300
-ch : 64
+
+# loss weight
+lambda_damsm_loss : 10
+lambda_cond_loss : 10
+lambda_recon_loss : 0.2

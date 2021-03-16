@@ -134,6 +134,7 @@ class Generator(nn.Module):
 
         # decoder
         d = self.decoder(e + merge)
+        d = torch.nn.functional.tanh(d)
 
         return d, (z_mean, z_log_stddev)
 

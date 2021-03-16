@@ -69,7 +69,7 @@ def get_img(img_path, img_size, flip, x, y, bbox=None,
     return re_img
 
 
-class TextDataset(data.Dataset):
+class BridsDataset(data.Dataset):
     def __init__(self, data_dir, split='train', captions_per_image=10,
                  img_size=128, words_num=18,
                  transform=None, target_transform=None):

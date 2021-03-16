@@ -6,9 +6,10 @@ import torch.nn.functional as F
 
 
 class Discriminator(nn.Module):
-    def __init__(self, n_words, init_weights=None):
+    def __init__(self, n_words, w_dim=512, init_weights=None):
         super(Discriminator, self).__init__()
         self.n_words = n_words
+        self.w_dim = w_dim
 
         self.eps = 1e-7
 
@@ -66,6 +67,8 @@ class Discriminator(nn.Module):
         )
 
         self.classifier = nn.Conv2d(512, 1, 4)
+        self.proj_to_text = nn.Conv2d(512, self.w_dim, 1)
+
 
         if init_weights is not None:
             self.apply(init_weights)
@@ -106,10 +109,13 @@ class Discriminator(nn.Module):
             att_txt_n = att_txt[:, idx_n]
             sim_n = torch.clamp(sim_n + self.eps, max=1).t().pow(att_txt_n).prod(0)
         sim = torch.clamp(sim + self.eps, max=1).t().pow(att_txt).prod(0)
+        
+        region_sim = self._damsm(img_feat_3, u)
 
         if negative:
-            return D, sim, sim_n
-        return D, sim
+            return D, sim, region_sim, sim_n
+        
+        return D, sim, region_sim
 
     def _encode_txt(self, txt, len_txt):
         txt = self.embed(txt.transpose(0, 1)).transpose(1, 0)
@@ -133,6 +139,43 @@ class Discriminator(nn.Module):
         u = (h_f + h_b) / 2
         m = u.sum(0) / mask.sum(0)
         return u, m, mask
+    
+    def _damsm(self, img_features, word_embs, rho_1=4., rho_2=5.):
+        word_embs = word_embs.transpose(0, 1)
+
+        # B, C, H, H
+        proj_w = self.proj_to_text(img_features)
+        # B, C, H * H
+        proj_w = proj_w.view(proj_w.size(0), proj_w.size(1), proj_w.size(2) * proj_w.size(2))
+        # B, T, C
+        
+        sims = []
+        for i in range(img_features.size(0)):
+            region_feature = proj_w[i].unsqueeze(0)
+            region_feature = region_feature.repeat(img_features.size(0), 1, 1)
+            # B, T, H * H
+            attn_map = torch.matmul(word_embs, region_feature)
+            word_embs_norm = torch.norm(word_embs, p=2, dim=-1, keepdim=True)
+            region_feature_norm = torch.norm(region_feature, p=2, dim=-2, keepdim=True)
+            norm = torch.matmul(word_embs_norm, region_feature_norm)
+            attn_map = attn_map / (norm + 1e-6)
+            attn_map = nn.Softmax()(rho_1 * attn_map)
+
+            # B, T, C
+            c = torch.matmul(attn_map, region_feature.transpose(1, 2))
+            scores_dot = word_embs * c
+            scores_dot = torch.sum(scores_dot, dim=-1)
+            word_embs_norm = torch.norm(word_embs, p=2)
+            c_norm = torch.norm(c, p=2)
+            scores = rho_2 * scores_dot / (word_embs_norm * c_norm + 1e-6)
+            scores = scores.exp_()
+            scores = torch.sum(scores, dim=1)
+            sim = torch.log(scores / rho_2)
+            
+            sim = nn.Softmax()(sim)[i]
+            sims.append(sim)
+
+        return torch.stack(sims, dim=0)
 
 
 class ResBlock(nn.Module):
@@ -177,7 +220,6 @@ class DAMSM(nn.Module):
         self.img_size = img_size
         self.n_words = n_words
         self.num_layers = int(np.log2(self.img_size)) - 4
-        self._build_model()
         self._build_model()
 
     def _build_model(self):
@@ -227,13 +269,13 @@ class DAMSM(nn.Module):
     def forward(self, img, txt, len_txt, rho_1=4.0, rho_2=5.0):
         img = self.from_rgb(img)
         img_features = self.img_encoder(img)
+        word_embs, _, _ = self._encode_txt(txt, len_txt)
 
         # B, C, H, H
         proj_w = self.proj_to_text(img_features)
         # B, C, H * H
         proj_w = proj_w.view(proj_w.size(0), proj_w.size(1), proj_w.size(2) * proj_w.size(2))
         # B, T, C
-        word_embs, _, _ = self._encode_txt(txt, len_txt)
         
         sims = []
         for i in range(img.size(0)):
@@ -246,7 +288,6 @@ class DAMSM(nn.Module):
             norm = torch.matmul(word_embs_norm, region_feature_norm)
             attn_map = attn_map / (norm + 1e-6)
             attn_map = nn.Softmax()(rho_1 * attn_map)
-
 
             # B, T, C
             c = torch.matmul(attn_map, region_feature.transpose(1, 2))
@@ -261,6 +302,8 @@ class DAMSM(nn.Module):
             
             sim = nn.Softmax()(sim)[i]
             sims.append(sim)
+
+        # print(sims)
         
         return torch.stack(sims, dim=0)
             
