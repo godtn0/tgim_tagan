@@ -28,8 +28,9 @@ if __name__ == '__main__':
     if not args.no_cuda and not torch.cuda.is_available():
         print('Warning: cuda is not available on this machine.')
         args.no_cuda = True
-    device = torch.device('cpu' if args.no_cuda else 'cuda')
-    
+        
+    device = torch.device(f'cuda:{cfg.gpu}' if torch.cuda.is_available() else 'cpu')
+    torch.cuda.set_device(device) # change allocation of current GPU
     cfg.device = device
 
     trainer = Trainer(cfg)

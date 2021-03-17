@@ -6,6 +6,9 @@ from models.discriminator import Discriminator, DAMSM
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.nn.functional as F
 
+from transformers import AutoTokenizer
+
+
 
 def label_like(label, x):
     assert label == 0 or label == 1
@@ -21,14 +24,16 @@ def ones_like(x):
 
 
 class TAGAN_Model(nn.Module):
-    def __init__(self, cfg, vocab_size):
+    def __init__(self, cfg):
         super(TAGAN_Model, self).__init__()
         self.cfg = cfg
-        G = Generator(vocab_size)
-        D = Discriminator(vocab_size)
-        damsm = DAMSM(vocab_size, cfg.w_dim, cfg.embedding_dim, cfg.ch)
+        G = Generator(cfg)
+        D = Discriminator(cfg)
+        damsm = DAMSM(cfg)
         self.G, self.D, self.damsm = G.to(cfg.device), D.to(cfg.device), damsm.to(cfg.device)
-    
+        if self.cfg.t_encoder == 'bert':
+            self.tokenize = AutoTokenizer.from_pretrained(self.cfg.bert_pretrain)
+
     def build_optimizer(self):
         self.g_optimizer = torch.optim.Adam(self.G.parameters(),
                                    lr=self.cfg.learning_rate, betas=(self.cfg.momentum, 0.999))

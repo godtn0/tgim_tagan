@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from models.text_encoder import Transformer, LSTM_Text_Encoder
+
 
 def init_weights(m):
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
@@ -35,9 +37,13 @@ class ResidualBlock(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, n_wrods):
+    def __init__(self, cfg):
         super(Generator, self).__init__()
-        self.n_words = n_wrods
+        self.cfg = cfg
+        self.t_encoder = self.cfg.t_encoder
+        self.n_words = self.cfg.n_words
+        self.embedding_dim = self.cfg.embedding_dim
+        self.w_dim = self.cfg.w_dim
         # encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 64, 3, 1, padding=1),
@@ -84,17 +90,17 @@ class Generator(nn.Module):
 
         # conditioning augmentation
         self.mu = nn.Sequential(
-            nn.Linear(512, 128),
+            nn.Linear(self.w_dim, 128),
             nn.LeakyReLU(0.2, inplace=True)
         )
         self.log_sigma = nn.Sequential(
-            nn.Linear(512, 128),
+            nn.Linear(self.w_dim, 128),
             nn.LeakyReLU(0.2, inplace=True)
         )
-
-        self.embed = nn.Embedding(self.n_words, 300)
-        self.txt_encoder_f = nn.GRUCell(300, 512)
-        self.txt_encoder_b = nn.GRUCell(300, 512)
+        if self.t_encoder == 'bert':
+            self.text_encoder = Transformer(self.cfg)
+        elif self.t_encoder == 'lstm':
+            self.text_encoder = LSTM_Text_Encoder(self.cfg)
 
         self.apply(init_weights)
 
@@ -103,25 +109,7 @@ class Generator(nn.Module):
         e = self.encoder(img)
 
         # text encoder
-        txt = self.embed(txt.transpose(0, 1)).transpose(1, 0)
-
-        hi_f = torch.zeros(txt.size(1), 512, device=txt.device)
-        hi_b = torch.zeros(txt.size(1), 512, device=txt.device)
-        h_f = []
-        h_b = []
-        mask = []
-        for i in range(txt.size(0)):
-            mask_i = (txt.size(0) - 1 - i < txt_len).float().unsqueeze(1)
-            mask.append(mask_i)
-            hi_f = self.txt_encoder_f(txt[i], hi_f)
-            h_f.append(hi_f)
-            hi_b = mask_i * self.txt_encoder_b(txt[-i - 1], hi_b) + (1 - mask_i) * hi_b
-            h_b.append(hi_b)
-        mask = torch.stack(mask[::-1])
-        h_f = torch.stack(h_f) * mask
-        h_b = torch.stack(h_b[::-1])
-        h = (h_f + h_b) / 2
-        cond = h.sum(0) / mask.sum(0)
+        h, cond, mask = self.text_encoder(txt, txt_len)
 
         z_mean = self.mu(cond)
         z_log_stddev = self.log_sigma(cond)

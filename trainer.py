@@ -11,7 +11,8 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 
-from dataset import BridsDataset, prepare_data
+from dataset.tagan_dataset import BridsDataset, prepare_data
+from dataset.bert_dataset import BirdBertDataset
 from models.tagan_model import TAGAN_Model
 
 
@@ -33,15 +34,17 @@ class Trainer:
             print("=" * 50)
             print('BIRDS')
             print("=" * 50)
-            
-            self.train_dataset = BridsDataset(self.cfg.data_dir, transform=get_transform())
+            if self.cfg.t_encoder == 'lstm':
+                self.train_dataset = BridsDataset(self.cfg.data_dir, transform=get_transform())
+            elif self.cfg.t_encoder == 'bert':
+                self.train_dataset = BirdBertDataset(self.cfg)
 
         self.train_dataloader = DataLoader(
             self.train_dataset,
             batch_size=self.cfg.batch_size,
             shuffle=True,
             num_workers=self.cfg.num_threads)
-
+        self.cfg.n_words = self.train_dataset.n_words
         self.num_batches = len(self.train_dataloader)
         self.total_iter = self.cfg.num_epochs * self.num_batches
     
@@ -49,7 +52,7 @@ class Trainer:
         print("=" * 50)
         print("building model... {}".format(self.cfg.model_name))
         print('GPU: {}'.format(torch.cuda.is_available()))
-        self.model = TAGAN_Model(self.cfg, self.train_dataset.n_words)
+        self.model = TAGAN_Model(self.cfg)
         self.g_lr_scheduler, self.d_lr_scheduler = self.model.build_optimizer()
         print("=" * 50)
     

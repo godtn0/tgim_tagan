@@ -4,12 +4,16 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from models.text_encoder import Transformer, LSTM_Text_Encoder
+
 
 class Discriminator(nn.Module):
-    def __init__(self, n_words, w_dim=512, init_weights=None):
+    def __init__(self, cfg, init_weights=None):
         super(Discriminator, self).__init__()
-        self.n_words = n_words
-        self.w_dim = w_dim
+        self.cfg = cfg
+        self.t_encoder = self.cfg.t_encoder
+        self.n_words = self.cfg.n_words
+        self.w_dim = self.cfg.w_dim
 
         self.eps = 1e-7
 
@@ -51,8 +55,13 @@ class Discriminator(nn.Module):
         )
 
         # text feature
-        self.embed = nn.Embedding(self.n_words, 300)
+        if self.t_encoder == 'bert':
+            self.text_encoder = Transformer(self.cfg)
 
+        elif self.t_encoder == 'lstm':
+            self.text_encoder = LSTM_Text_Encoder(self.cfg)
+
+        self.embed = nn.Embedding(self.n_words, 300)
         self.txt_encoder_f = nn.GRUCell(300, 512)
         self.txt_encoder_b = nn.GRUCell(300, 512)
 
@@ -81,7 +90,7 @@ class Discriminator(nn.Module):
         D = self.classifier(img_feat_3).squeeze()
 
         # text attention : calcuate important rate of each word in sentence
-        u, m, mask = self._encode_txt(txt, len_txt)
+        u, m, mask = self.text_encoder(txt, len_txt)
         att_txt = (u * m.unsqueeze(0)).sum(-1)
         att_txt_exp = att_txt.exp() * mask.squeeze(-1)
         att_txt = (att_txt_exp / att_txt_exp.sum(0, keepdim=True))
@@ -116,29 +125,6 @@ class Discriminator(nn.Module):
             return D, sim, region_sim, sim_n
         
         return D, sim, region_sim
-
-    def _encode_txt(self, txt, len_txt):
-        txt = self.embed(txt.transpose(0, 1)).transpose(1, 0)
-
-        # T, B, D
-        hi_f = torch.zeros(txt.size(1), 512, device=txt.device) # (B, 512)
-        hi_b = torch.zeros(txt.size(1), 512, device=txt.device) # (B, 512)
-        h_f = []
-        h_b = []
-        mask = []
-        for i in range(txt.size(0)):
-            mask_i = (txt.size(0) - 1 - i < len_txt).float().unsqueeze(1) # 
-            mask.append(mask_i)
-            hi_f = self.txt_encoder_f(txt[i], hi_f)
-            h_f.append(hi_f)
-            hi_b = mask_i * self.txt_encoder_b(txt[-i - 1], hi_b) + (1 - mask_i) * hi_b
-            h_b.append(hi_b)
-        mask = torch.stack(mask[::-1])
-        h_f = torch.stack(h_f) * mask
-        h_b = torch.stack(h_b[::-1])
-        u = (h_f + h_b) / 2
-        m = u.sum(0) / mask.sum(0)
-        return u, m, mask
     
     def _damsm(self, img_features, word_embs, rho_1=4., rho_2=5.):
         word_embs = word_embs.transpose(0, 1)
@@ -212,13 +198,14 @@ class ResBlock(nn.Module):
 
 
 class DAMSM(nn.Module):
-    def __init__(self, n_words, w_dim, embedding_dim=300, ch=64, img_size=128):
+    def __init__(self, cfg):
         super(DAMSM, self).__init__()
-        self.ch = ch
-        self.w_dim = w_dim
-        self.embedding_dim = embedding_dim
-        self.img_size = img_size
-        self.n_words = n_words
+        self.cfg = cfg
+        self.ch = self.cfg.ch
+        self.w_dim = self.cfg.w_dim
+        self.embedding_dim = self.cfg.embedding_dim
+        self.img_size = self.cfg.img_size
+        self.n_words = self.cfg.n_words
         self.num_layers = int(np.log2(self.img_size)) - 4
         self._build_model()
 
