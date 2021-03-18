@@ -70,7 +70,7 @@ def get_img(img_path, img_size, flip, x, y, bbox=None,
 
 
 class BridsDataset(data.Dataset):
-    def __init__(self, data_dir, split='train', captions_per_image=10,
+    def __init__(self, data_dir, split='train', captions_per_img=10,
                  img_size=128, words_num=18,
                  transform=None, target_transform=None):
         self.transform = transform
@@ -78,7 +78,7 @@ class BridsDataset(data.Dataset):
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
         self.target_transform = target_transform
-        self.embeddings_num = captions_per_image
+        self.embeddings_num = captions_per_img
         self.img_size = img_size
         self.words_num = words_num
 

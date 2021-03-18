@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.text_encoder import Transformer, LSTM_Text_Encoder
+from models.networks.text_encoder import Transformer, LSTM_Text_Encoder
 
 
 def init_weights(m):
@@ -37,13 +37,15 @@ class ResidualBlock(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, text_encoder):
         super(Generator, self).__init__()
         self.cfg = cfg
         self.t_encoder = self.cfg.t_encoder
-        self.n_words = self.cfg.n_words
         self.embedding_dim = self.cfg.embedding_dim
         self.w_dim = self.cfg.w_dim
+
+        self.text_encoder = text_encoder
+
         # encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 64, 3, 1, padding=1),
@@ -97,10 +99,6 @@ class Generator(nn.Module):
             nn.Linear(self.w_dim, 128),
             nn.LeakyReLU(0.2, inplace=True)
         )
-        if self.t_encoder == 'bert':
-            self.text_encoder = Transformer(self.cfg)
-        elif self.t_encoder == 'lstm':
-            self.text_encoder = LSTM_Text_Encoder(self.cfg)
 
         self.apply(init_weights)
 
@@ -113,7 +111,7 @@ class Generator(nn.Module):
 
         z_mean = self.mu(cond)
         z_log_stddev = self.log_sigma(cond)
-        z = torch.randn(cond.size(0), 128, device=txt.device)
+        z = torch.randn(cond.size(0), 128, device=h.device)
         cond = z_mean + z_log_stddev.exp() * z
 
         # residual blocks

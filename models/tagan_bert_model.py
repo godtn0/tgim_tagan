@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from models.networks.generator import Generator
 from models.networks.discriminator import Discriminator, DAMSM
-from models.networks.text_encoder import LSTM_Text_Encoder
+from models.networks.text_encoder import Transformer
 import torch.optim.lr_scheduler as lr_scheduler
 import torch.nn.functional as F
 
@@ -24,31 +24,31 @@ def ones_like(x):
     return label_like(1, x)
 
 
-class TAGAN_Model(nn.Module):
+class TAGAN_Bert_Model(nn.Module):
     def __init__(self, cfg):
-        super(TAGAN_Model, self).__init__()
+        super(TAGAN_Bert_Model, self).__init__()
         self.cfg = cfg
         self._build_models()
     
     def _build_models(self):
         if self.cfg.d_t_share:
-            text_encoder = LSTM_Text_Encoder(self.cfg).to(self.cfg.device)
+            text_encoder = Transformer(self.cfg).to(self.cfg.device)
             D = Discriminator(self.cfg, text_encoder)
             damsm = DAMSM(self.cfg, text_encoder)
             if self.cfg.g_t_share:
                 G = Generator(self.cfg, text_encoder)
             else :
-                G = Generator(self.cfg, LSTM_Text_Encoder(self.cfg).to(self.cfg.device))
+                G = Generator(self.cfg, Transformer(self.cfg).to(self.cfg.device))
         else:
-            G = Generator(self.cfg, LSTM_Text_Encoder(self.cfg).to(self.cfg.device))
-            D = Discriminator(self.cfg, LSTM_Text_Encoder(self.cfg).to(self.cfg.device))
-            damsm = DAMSM(self.cfg, LSTM_Text_Encoder(self.cfg).to(self.cfg.device))
+            G = Generator(self.cfg, Transformer(self.cfg).to(self.cfg.device))
+            D = Discriminator(self.cfg, Transformer(self.cfg).to(self.cfg.device))
+            damsm = DAMSM(self.cfg, Transformer(self.cfg).to(self.cfg.device))
         self.G, self.D, self.damsm = G.to(self.cfg.device), D.to(self.cfg.device), damsm.to(self.cfg.device)
 
     def build_optimizer(self):
-        self.g_optimizer = torch.optim.Adam(list(self.G.parameters()) + list(self.G.text_encoder.parameters()),
+        self.g_optimizer = torch.optim.Adam(self.G.parameters(),
                                    lr=self.cfg.learning_rate, betas=(self.cfg.momentum, 0.999))
-        self.d_optimizer = torch.optim.Adam(list(self.D.parameters()) + list(self.damsm.parameters()) + list(self.D.text_encoder.parameters()),
+        self.d_optimizer = torch.optim.Adam(list(self.D.parameters()) + list(self.damsm.parameters()),
                                     lr=self.cfg.learning_rate, betas=(self.cfg.momentum, 0.999))
         g_lr_scheduler = lr_scheduler.StepLR(self.g_optimizer, 100, self.cfg.lr_decay)
         d_lr_scheduler = lr_scheduler.StepLR(self.d_optimizer, 100, self.cfg.lr_decay)

@@ -7,24 +7,30 @@ lr_decay : 0.5
 momentum : 0.5
 learning_rate : 0.0002
 num_epochs : 600
-model_name : 'tagan'
+model_name : 'tagan_bert'
 overfit : False
 
 # data
 data_dir : '../../data/manigan/birds'
 save_path : './logging'
 
+data_root: '../../data/bert/bird_data'
+
+
+
 # img
 img_size : 128
 ch : 64
 
 # text
-captions_per_image : 10
+captions_per_img : 10
 words_num : 18
 w_dim : 768
 embedding_dim : 300
 bert_pretrain: "bert-base-uncased"
 t_encoder : 'bert'
+d_t_share : True
+g_t_share : False
 
 # loss weight
 lambda_damsm_loss : 1

@@ -4,16 +4,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.text_encoder import Transformer, LSTM_Text_Encoder
+from models.networks.text_encoder import Transformer, LSTM_Text_Encoder
 
 
 class Discriminator(nn.Module):
-    def __init__(self, cfg, init_weights=None):
+    def __init__(self, cfg, text_encoder=None, init_weights=None):
         super(Discriminator, self).__init__()
         self.cfg = cfg
         self.t_encoder = self.cfg.t_encoder
-        self.n_words = self.cfg.n_words
         self.w_dim = self.cfg.w_dim
+
+        self.text_encoder = text_encoder.to(self.cfg.device)
 
         self.eps = 1e-7
 
@@ -55,16 +56,6 @@ class Discriminator(nn.Module):
         )
 
         # text feature
-        if self.t_encoder == 'bert':
-            self.text_encoder = Transformer(self.cfg)
-
-        elif self.t_encoder == 'lstm':
-            self.text_encoder = LSTM_Text_Encoder(self.cfg)
-
-        self.embed = nn.Embedding(self.n_words, 300)
-        self.txt_encoder_f = nn.GRUCell(300, 512)
-        self.txt_encoder_b = nn.GRUCell(300, 512)
-
         self.gen_filter = nn.ModuleList([
             nn.Linear(512, 256 + 1),
             nn.Linear(512, 512 + 1),
@@ -198,16 +189,16 @@ class ResBlock(nn.Module):
 
 
 class DAMSM(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, text_encoder):
         super(DAMSM, self).__init__()
         self.cfg = cfg
         self.ch = self.cfg.ch
         self.w_dim = self.cfg.w_dim
         self.embedding_dim = self.cfg.embedding_dim
         self.img_size = self.cfg.img_size
-        self.n_words = self.cfg.n_words
         self.num_layers = int(np.log2(self.img_size)) - 4
         self._build_model()
+        self.text_encoder = text_encoder.to(self.cfg.device)
 
     def _build_model(self):
         # imgae_encoder for DAMSM
@@ -223,40 +214,11 @@ class DAMSM(nn.Module):
         self.img_encoder = nn.Sequential(*encoder)
         self.proj_to_text = nn.Conv2d(ch_in, self.w_dim, 1)
 
-        # text_encoder for DAMSM
-        self.embed = nn.Embedding(self.n_words, self.embedding_dim)
-        self.txt_encoder_f = nn.GRUCell(self.embedding_dim, self.w_dim)
-        self.txt_encoder_b = nn.GRUCell(self.embedding_dim, self.w_dim)
-
-
-    def _encode_txt(self, txt, len_txt):
-        txt = self.embed(txt.transpose(0, 1)).transpose(1, 0)
-
-        hi_f = torch.zeros(txt.size(1), self.w_dim, device=txt.device)
-        hi_b = torch.zeros(txt.size(1), self.w_dim, device=txt.device)
-        h_f = []
-        h_b = []
-        mask = []
-        for i in range(txt.size(0)):
-            mask_i = (txt.size(0) - 1 - i < len_txt).float().unsqueeze(1)
-            mask.append(mask_i)
-            hi_f = self.txt_encoder_f(txt[i], hi_f)
-            h_f.append(hi_f)
-            hi_b = mask_i * self.txt_encoder_b(txt[-i - 1], hi_b) + (1 - mask_i) * hi_b
-            h_b.append(hi_b)
-        mask = torch.stack(mask[::-1])
-        h_f = torch.stack(h_f) * mask
-        h_b = torch.stack(h_b[::-1])
-        u = (h_f + h_b) / 2
-        m = u.sum(0) / mask.sum(0)
-        u = u.transpose(0, 1)
-
-        return u, m, mask
-    
     def forward(self, img, txt, len_txt, rho_1=4.0, rho_2=5.0):
         img = self.from_rgb(img)
         img_features = self.img_encoder(img)
-        word_embs, _, _ = self._encode_txt(txt, len_txt)
+        word_embs, _, _ = self.text_encoder(txt, len_txt)
+        word_embs = word_embs.transpose(0, 1)
 
         # B, C, H, H
         proj_w = self.proj_to_text(img_features)
@@ -290,7 +252,6 @@ class DAMSM(nn.Module):
             sim = nn.Softmax()(sim)[i]
             sims.append(sim)
 
-        # print(sims)
         
         return torch.stack(sims, dim=0)
             
